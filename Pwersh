@@ -1,0 +1,30 @@
+// ~/.aider-desk/extensions/powershell-fix.ts
+import type { AiderDeskExtension } from 'aider-desk';
+
+export default {
+  name: 'powershell-fix',
+  hooks: {
+    onToolCalled(ctx) {
+      const cmd = ctx.toolInput?.command ?? '';
+
+      // Only intercept PowerShell inline commands with $_
+      if (!/pwsh\s+(-Command|--command)/i.test(cmd) || !cmd.includes('$_')) {
+        return;
+      }
+
+      // Rewrite: extract the PS body, write to temp file, invoke with -File
+      const match = cmd.match(/(?:pwsh|powershell(?:\.exe)?)\s+(?:-Command|--command)\s+['"](.+)['"]/is);
+      if (!match) return;
+
+      const psBody = match[1];
+      const tmpFile = `${process.env.TEMP ?? '/tmp'}/aiderdesk_${Date.now()}.ps1`;
+
+      ctx.toolInput.command = [
+        `Set-Content -Path '${tmpFile}' -Value @'`,
+        psBody,
+        `'@`,
+        `pwsh -File '${tmpFile}'`,
+      ].join('\n');
+    },
+  },
+} satisfies AiderDeskExtension;   
