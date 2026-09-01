@@ -10,7 +10,6 @@ import type {
   CommandDefinition,
   ToolCalledEvent,
   ImportantRemindersEvent,
-  ProjectStartedEvent,
 } from '@aiderdesk/extensions';
 
 const inputSchema = z.object({
@@ -59,34 +58,14 @@ export function transformPowerShellCommand(command: string): string {
 export default class WindowsPowerShellFixExtension implements Extension {
   static metadata = {
     name: 'Windows PowerShell Fix',
-    version: '2.0.0',
+    version: '2.1.0',
     description: 'Automatically intercepts and fixes PowerShell execution policy, encoding, and scripts on Windows',
     author: 'AiderDesk',
     capabilities: ['tools', 'commands', 'events'],
   };
 
   async onLoad(context: ExtensionContext): Promise<void> {
-    context.log('Windows PowerShell Fix Extension v2.0 loaded (Automatic Interception Active)', 'info');
-  }
-
-  async onProjectStarted(event: ProjectStartedEvent, context: ExtensionContext): Promise<void> {
-    try {
-      const projectDir = event.baseDir || context.getProjectDir();
-      if (projectDir) {
-        const fixScript = join(projectDir, 'fix.ps1');
-        if (existsSync(fixScript)) {
-          context.log(`Auto-executing project fix.ps1 with ExecutionPolicy Bypass...`);
-          execSync(`powershell -ExecutionPolicy Bypass -NoProfile -File "${fixScript}"`, {
-            cwd: projectDir,
-            encoding: 'utf-8',
-            windowsHide: true,
-          });
-        }
-      }
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      context.log(`fix.ps1 execution note: ${msg}`, 'warn');
-    }
+    context.log('Windows PowerShell Fix Extension v2.1 loaded (Safe On-Demand Interception)', 'info');
   }
 
   async onImportantReminders(event: ImportantRemindersEvent, context: ExtensionContext): Promise<Partial<ImportantRemindersEvent>> {
