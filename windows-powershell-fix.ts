@@ -8,6 +8,9 @@ import type {
   ExtensionContext,
   ToolDefinition,
   CommandDefinition,
+  ToolCalledEvent,
+  ImportantRemindersEvent,
+  ProjectStartedEvent,
 } from '@aiderdesk/extensions';
 
 const inputSchema = z.object({
@@ -23,17 +26,92 @@ const inputSchema = z.object({
 
 type WindowsPowerShellFixInput = z.infer<typeof inputSchema>;
 
+export function transformPowerShellCommand(command: string): string {
+  if (!command || typeof command !== 'string') return command;
+
+  const trimmed = command.trim();
+
+  // If already contains ExecutionPolicy Bypass, keep as-is
+  if (/executionpolicy\s+bypass/i.test(trimmed)) {
+    return command;
+  }
+
+  // Case 1: Invoking powershell or pwsh executable
+  const psMatch = trimmed.match(/^(powershell(?:\.exe)?|pwsh(?:\.exe)?)\s+(.*)$/i);
+  if (psMatch) {
+    const [, binary, rest] = psMatch;
+    const hasNoProfile = /-noprofile/i.test(rest);
+    const flags = `-ExecutionPolicy Bypass${hasNoProfile ? '' : ' -NoProfile'}`;
+    return `${binary} ${flags} ${rest}`.trim();
+  }
+
+  // Case 2: Direct .ps1 execution (e.g. .\script.ps1 or path/script.ps1)
+  const ps1Match = trimmed.match(/^(&\s*)?(?:\.\\|\.\/)?(["']?[^"'\s]+\.ps1["']?)(\s+.*)?$/i);
+  if (ps1Match) {
+    const script = ps1Match[2];
+    const args = ps1Match[3] ? ps1Match[3] : '';
+    return `powershell -ExecutionPolicy Bypass -NoProfile -File ${script}${args}`.trim();
+  }
+
+  return command;
+}
+
 export default class WindowsPowerShellFixExtension implements Extension {
   static metadata = {
     name: 'Windows PowerShell Fix',
-    version: '1.0.0',
-    description: 'Fix Windows PowerShell environment for Aider and execute PowerShell scripts with ExecutionPolicy Bypass',
+    version: '2.0.0',
+    description: 'Automatically intercepts and fixes PowerShell execution policy, encoding, and scripts on Windows',
     author: 'AiderDesk',
-    capabilities: ['tools', 'commands'],
+    capabilities: ['tools', 'commands', 'events'],
   };
 
   async onLoad(context: ExtensionContext): Promise<void> {
-    context.log('Windows PowerShell Fix Extension loaded', 'info');
+    context.log('Windows PowerShell Fix Extension v2.0 loaded (Automatic Interception Active)', 'info');
+  }
+
+  async onProjectStarted(event: ProjectStartedEvent, context: ExtensionContext): Promise<void> {
+    try {
+      const projectDir = event.baseDir || context.getProjectDir();
+      if (projectDir) {
+        const fixScript = join(projectDir, 'fix.ps1');
+        if (existsSync(fixScript)) {
+          context.log(`Auto-executing project fix.ps1 with ExecutionPolicy Bypass...`);
+          execSync(`powershell -ExecutionPolicy Bypass -NoProfile -File "${fixScript}"`, {
+            cwd: projectDir,
+            encoding: 'utf-8',
+            windowsHide: true,
+          });
+        }
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      context.log(`fix.ps1 execution note: ${msg}`, 'warn');
+    }
+  }
+
+  async onImportantReminders(event: ImportantRemindersEvent, context: ExtensionContext): Promise<Partial<ImportantRemindersEvent>> {
+    const reminder = 'Windows PowerShell environment is active. All PowerShell commands are automatically executed with ExecutionPolicy Bypass and UTF-8 encoding.';
+    const remindersContent = event.remindersContent ? `${event.remindersContent}\n${reminder}` : reminder;
+    return { remindersContent };
+  }
+
+  async onToolCalled(event: ToolCalledEvent, context: ExtensionContext): Promise<Partial<ToolCalledEvent>> {
+    if (event.toolName === 'power---bash' && event.input && typeof event.input.command === 'string') {
+      const originalCommand = event.input.command;
+      const transformedCommand = transformPowerShellCommand(originalCommand);
+
+      if (transformedCommand !== originalCommand) {
+        context.log(`Auto-injected ExecutionPolicy Bypass: "${originalCommand}" -> "${transformedCommand}"`);
+        return {
+          input: {
+            ...event.input,
+            command: transformedCommand,
+          },
+        };
+      }
+    }
+
+    return {};
   }
 
   getTools(): ToolDefinition[] {
